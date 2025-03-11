@@ -76,21 +76,13 @@ fn main() -> Result<()> {
         cli.log2_size
     );
     println!("the matrix is {} by {}", cols, rows);
-    print!("{color_reset}
-
-{style_reset}
-
-");
+    print!("{color_reset}{style_reset}\n");
     assert_eq!(cols * rows, size as usize);
 
     print!("{color_green}");
     let target_file = PathBuf::from("input_file.md");
     let mut input_handle = setup_file(dims, &target_file)?;
-    print!("{color_reset}
-
-{style_reset}
-
-");
+    print!("{color_reset}{style_reset}\n");
     if cli.verbose {
         println!("input file looks like this:");
         sample_file(dims, &mut input_handle)?;
@@ -113,11 +105,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}
-
-{style_reset}
-
-");
+        print!("{color_reset}{style_reset}\n");
 
         if cli.verbose {
             println!("in_memory output looks like this:");
@@ -144,11 +132,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}
-
-{style_reset}
-
-");
+        print!("{color_reset}{style_reset}\n");
         if cli.verbose {
             println!("mmap file looks like this:");
             sample_file(dims, &mut mmap_file)?;
@@ -174,11 +158,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}
-
-{style_reset}
-
-");
+        print!("{color_reset}{style_reset}\n");
         if cli.verbose {
             println!("temp file looks like this:");
             sample_file(dims, &mut joined_file)?;
@@ -298,8 +278,8 @@ fn join_file_handles(
     output_file.set_len(size)?;
 
     let start_time_with_temps = Instant::now();
-    let mut file_io_result = || -> Result<_> {
-        let mut new_row_file_handles = (0..rows)
+    let file_io_result = || -> Result<_> {
+        let new_row_file_handles = (0..rows)
             .map(|i| {
                 let temp_file_name = temp_dir.join(format!("row-{}.md", i));
                 let temp_file_handle = OpenOptions::new()
