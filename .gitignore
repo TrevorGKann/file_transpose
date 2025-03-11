@@ -1,0 +1,8 @@
+/target
+/debug
+.idea
+flamegraph
+flamegraph.svg
+perf.data*
+*.md
+profile.json*

@@ -1,0 +1,22 @@
+[package]
+name = "mmap_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.97"
+clap = { version = "4.5.32", features = ["derive"] }
+inline_colorization = "0.1.6"
+memmap = "0.7.0"
+rayon = "1.10.0"
+
+[profile.release]
+debug = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
+#[features]
+#print_out = []
+#check_result = []
