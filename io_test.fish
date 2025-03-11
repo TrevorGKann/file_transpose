@@ -1,9 +1,9 @@
 #!/usr/bin/fish
 echo "zero to empty file"
-time dd if=/dev/zero of=empty-file bs=1MB count=( math 1024 x 1024 )
+time dd if=/dev/zero of=empty-file bs=1MB count=1024
 
 echo "random to empty file"
-time dd if=/dev/urandom of=random-data bs=1MB count=( math 1024 x 1024 )
+time dd if=/dev/urandom of=random-data bs=1MB count=1024
 
 echo "syncing and flushing caches"
 sync
