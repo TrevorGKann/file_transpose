@@ -76,13 +76,21 @@ fn main() -> Result<()> {
         cli.log2_size
     );
     println!("the matrix is {} by {}", cols, rows);
-    print!("{color_reset}{style_reset}");
+    print!("{color_reset}
+
+{style_reset}
+
+");
     assert_eq!(cols * rows, size as usize);
 
     print!("{color_green}");
     let target_file = PathBuf::from("input_file.md");
     let mut input_handle = setup_file(dims, &target_file)?;
-    print!("{color_reset}{style_reset}");
+    print!("{color_reset}
+
+{style_reset}
+
+");
     if cli.verbose {
         println!("input file looks like this:");
         sample_file(dims, &mut input_handle)?;
@@ -90,6 +98,8 @@ fn main() -> Result<()> {
 
     let mut mem_file = if cli.in_memory {
         print!("{color_magenta}");
+        println!("starting in-memory transpose");
+
         let mut total_duration = Duration::from_secs(0);
         let mut mem_file = File::open(PathBuf::from("input_file.md"))?;
         for _ in 0..cli.times {
@@ -103,7 +113,11 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}{style_reset}");
+        print!("{color_reset}
+
+{style_reset}
+
+");
 
         if cli.verbose {
             println!("in_memory output looks like this:");
@@ -116,6 +130,7 @@ fn main() -> Result<()> {
 
     if cli.mmap {
         print!("{color_yellow}");
+        println!("starting memmap solution");
         let mut total_duration = Duration::from_secs(0);
         let mut mmap_file = File::open(PathBuf::from("input_file.md"))?;
         for _ in 0..cli.times {
@@ -129,7 +144,11 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}{style_reset}");
+        print!("{color_reset}
+
+{style_reset}
+
+");
         if cli.verbose {
             println!("mmap file looks like this:");
             sample_file(dims, &mut mmap_file)?;
@@ -141,6 +160,7 @@ fn main() -> Result<()> {
 
     if cli.join {
         print!("{color_cyan}");
+        println!("starting tranpose with temp files");
         let mut total_duration = Duration::from_secs(0);
         let mut joined_file = File::open(PathBuf::from("input_file.md"))?;
         for _ in 0..cli.times {
@@ -154,7 +174,11 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
-        print!("{color_reset}{style_reset}");
+        print!("{color_reset}
+
+{style_reset}
+
+");
         if cli.verbose {
             println!("temp file looks like this:");
             sample_file(dims, &mut joined_file)?;
@@ -204,7 +228,6 @@ fn in_memory(
         .truncate(true)
         .open(&path)?;
 
-    println!("starting in-memory transpose");
     let start_time = Instant::now();
 
     let mut input_buff = Vec::with_capacity(size as usize);
@@ -241,7 +264,6 @@ fn mmap_solution(
     // output_file.set_len(size)?;
     let mut mmap = unsafe { MmapMut::map_mut(&output_file)? };
 
-    println!("starting memmap solution");
     let start_time = Instant::now();
     for i in 0..rows {
         for j in i..cols {
@@ -275,7 +297,6 @@ fn join_file_handles(
         .open(&target_output)?;
     output_file.set_len(size)?;
 
-    println!("starting tranpose with temp files");
     let start_time_with_temps = Instant::now();
     let mut file_io_result = || -> Result<_> {
         let mut new_row_file_handles = (0..rows)
