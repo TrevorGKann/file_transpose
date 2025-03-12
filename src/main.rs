@@ -80,6 +80,7 @@ fn _main(mut cli: Cli) -> Result<()> {
     let size = 2u64.pow(cli.log2_size);
     let rows = ((size as f64).sqrt().ceil() as u64).next_power_of_two() as usize;
     let cols = size as usize / rows;
+    assert!(rows >= cols, "for convenience, wlog, rows >= cols");
     let dims = Dimensions { size, rows, cols };
     assert!(cli.times > 0, "must run a positive amount of runs");
     if cli.all {
@@ -135,6 +136,15 @@ fn _main(mut cli: Cli) -> Result<()> {
         if cli.verbose {
             println!("in_memory output looks like this:");
             sample_file(dims, &mut mem_file)?;
+        }
+        if cli.check_work {
+            mem_file.seek(SeekFrom::Start(0))?;
+            let mut temp_storage = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(PathBuf::from("temp_transpose_file.md"))?;
+            std::io::copy(&mut mem_file, &mut temp_storage)?;
+            temp_storage.seek(SeekFrom::Start(0))?;
+            let (mut new_mem_file, _) = in_memory(dims, &mut temp_storage)?;
+            assert!(file_eq_assert(&mut mem_file, &mut new_mem_file)?);
+            std::fs::remove_file(PathBuf::from("temp_transpose_file.md"))?;
         }
         mem_file
     } else {
@@ -227,7 +237,7 @@ fn _main(mut cli: Cli) -> Result<()> {
             print_throughput(size * cli.times as u64, total_duration);
             print!("{color_reset}{style_reset}\n");
             if cli.verbose {
-                println!("disk manipulated file looks like this:");
+                println!("buffered disk manipulated file looks like this:");
                 sample_file(dims, &mut buffered_disk_result_file)?;
             }
             if cli.check_work && cli.in_memory {
@@ -368,13 +378,14 @@ fn disk_io_solution(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(true)
         .open(&target_path)?;
     output_file.set_len(size)?;
 
     let start_time = Instant::now();
     let mut input_value_buf = [0u8; 1];
-    for i in 0..rows {
-        for j in i..cols {
+    for i in 0..cols {
+        for j in 0..rows {
             input_file.read_at(&mut input_value_buf, (i * cols + j) as u64)?;
             output_file.write_at(&input_value_buf, (j * cols + i) as u64)?;
         }
@@ -418,7 +429,7 @@ fn buffered_disk_io_solution(
                 .enumerate()
                 .try_for_each(|(column_index, col_buf)| {
                     output_file
-                        .write_at(col_buf, (row_index + column_index) as u64)
+                        .write_at(col_buf, (row_index  + column_index * cols) as u64)
                         .and_then(|_| Ok(()))
                 })?;
         }
