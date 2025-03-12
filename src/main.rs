@@ -156,7 +156,7 @@ fn _main(mut cli: Cli) -> Result<()> {
         }
         if cli.times > 1 {
             println!(
-                "{style_bold} On average it took {:?}",
+                "{style_bold}On average it took {:?}",
                 total_duration / cli.times as u32
             );
         }
@@ -186,7 +186,7 @@ fn _main(mut cli: Cli) -> Result<()> {
             }
             if cli.times > 1 {
                 println!(
-                    "{style_bold} On average it took {:?}",
+                    "{style_bold}On average it took {:?}",
                     total_duration / cli.times as u32
                 );
             }
@@ -220,7 +220,7 @@ fn _main(mut cli: Cli) -> Result<()> {
             }
             if cli.times > 1 {
                 println!(
-                    "{style_bold} On average it took {:?}",
+                    "{style_bold}On average it took {:?}",
                     total_duration / cli.times as u32
                 );
             }
@@ -254,7 +254,7 @@ fn _main(mut cli: Cli) -> Result<()> {
         }
         if cli.times > 1 {
             println!(
-                "{style_bold} On average it took {:?}",
+                "{style_bold}On average it took {:?}",
                 total_duration / cli.times as u32
             );
         }
