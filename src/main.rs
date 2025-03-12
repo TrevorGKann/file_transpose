@@ -10,6 +10,7 @@ use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::{Duration, Instant};
+use size::Size;
 
 const ITER_COUNT: usize = 1;
 // const size: u64 = 2u64.pow(30);
@@ -28,7 +29,7 @@ struct Cli {
     verbose: bool,
 
     /// check after each algorithm that the result is correct
-    #[arg(short, requires = "check")]
+    #[arg(short)]
     check_work: bool,
 
     /// number of times to repeat the experiment
@@ -36,7 +37,7 @@ struct Cli {
     times: usize,
 
     /// run in-memory transpose
-    #[arg(short, group = "check")]
+    #[arg(short)]
     in_memory: bool,
 
     /// run memmap solution
@@ -58,7 +59,7 @@ struct Cli {
     /// **toggle** all solutions.
     /// Doing -a and -b, for example, will run all solutions except the
     /// buffered one.
-    #[arg(short, group = "check")]
+    #[arg(short)]
     all: bool,
 }
 
@@ -88,13 +89,14 @@ fn _main(mut cli: Cli) -> Result<()> {
         cli.buff_on_disk ^= true;
         cli.join ^= true;
     }
-    assert!(!cli.check_work || cli.in_memory);
+    assert!(!cli.check_work || cli.in_memory, "{color_red}the in_memory solution is used as the reference solution, and therefore must be on to check work.{color_reset}");
 
     // setup file
     print!("{color_blue}");
     println!(
-        "running test with filesize 2**{} == {size} bytes over {ITER_COUNT} iters",
-        cli.log2_size
+        "running test with filesize 2**{} == {} over {ITER_COUNT} iters",
+        cli.log2_size,
+        Size::from_bytes(size),
     );
     println!("the matrix is {} by {}", cols, rows);
     print!("{color_reset}{style_reset}\n");
@@ -544,8 +546,8 @@ fn file_eq_assert(file_a: &mut File, file_b: &mut File) -> Result<bool> {
 }
 
 fn print_throughput(bytes_processed: u64, total_duration: Duration) {
-    let throughput = (bytes_processed as f64 / total_duration.as_secs_f64()) / 1_000_000.0;
-    println!("Average throughput {:.4} MB/s", throughput);
+    let throughput = (bytes_processed as f64 / total_duration.as_secs_f64()).floor() as usize;
+    println!("Average throughput {}/s", Size::from_bytes(throughput));
 }
 
 #[unsafe(no_mangle)]
