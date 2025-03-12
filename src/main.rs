@@ -55,7 +55,9 @@ struct Cli {
     #[arg(short)]
     buff_on_disk: bool,
 
-    /// run all solutions
+    /// **toggle** all solutions.
+    /// Doing -a and -b, for example, will run all solutions except the
+    /// buffered one.
     #[arg(short, group = "check")]
     all: bool,
 }
@@ -80,12 +82,13 @@ fn _main(mut cli: Cli) -> Result<()> {
     let dims = Dimensions { size, rows, cols };
     assert!(cli.times > 0, "must run a positive amount of runs");
     if cli.all {
-        cli.in_memory = true;
-        cli.mmap = true;
-        cli.on_disk = true;
-        cli.buff_on_disk = true;
-        cli.join = true;
+        cli.in_memory ^= true;
+        cli.mmap ^= true;
+        cli.on_disk ^= true;
+        cli.buff_on_disk ^= true;
+        cli.join ^= true;
     }
+    assert!(!cli.check_work || cli.in_memory);
 
     // setup file
     print!("{color_blue}");
@@ -120,7 +123,7 @@ fn _main(mut cli: Cli) -> Result<()> {
         }
         if cli.times > 1 {
             println!(
-                "{style_bold} On average it took {:?}",
+                "{style_bold}On average it took {:?}",
                 total_duration / cli.times as u32
             );
         }
@@ -327,7 +330,6 @@ fn mmap_solution(
     Dimensions { rows, cols, .. }: Dimensions,
     input_path: &Path,
 ) -> Result<(File, Duration)> {
-    let start_with_copy = Instant::now();
     let target_path: PathBuf = PathBuf::from("mmap.md");
     std::fs::copy(input_path, &target_path)?;
     let output_file = OpenOptions::new()
@@ -348,9 +350,7 @@ fn mmap_solution(
     }
 
     let duration = start_time.elapsed();
-    let duration_with_copy = start_with_copy.elapsed();
     println!("memmap time: {:?}", duration);
-    println!("with the initial copy: {:?}", duration_with_copy);
 
     Ok((output_file, duration))
 }
