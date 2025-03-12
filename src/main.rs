@@ -1,14 +1,15 @@
+use anyhow::Result;
 use clap::Parser;
 use inline_colorization::*;
 use memmap::MmapMut;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
-use std::fs::{File, OpenOptions, create_dir_all};
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::fs::{create_dir_all, File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::{Duration, Instant};
-use anyhow::Result;
 
 const ITER_COUNT: usize = 1;
 // const size: u64 = 2u64.pow(30);
@@ -46,6 +47,14 @@ struct Cli {
     #[arg(short)]
     join: bool,
 
+    /// run the transpose entirely on disk
+    #[arg(short)]
+    on_disk: bool,
+
+    /// entirely on disk but with a write_buffer to minimize the writes
+    #[arg(short)]
+    buff_on_disk: bool,
+
     /// run all solutions
     #[arg(short, group = "check")]
     all: bool,
@@ -57,8 +66,14 @@ struct Dimensions {
     rows: usize,
     cols: usize,
 }
+
 fn main() -> Result<()> {
-    let mut cli = Cli::parse();
+    let cli = Cli::parse();
+    _main(cli)
+}
+
+// for mockup tests
+fn _main(mut cli: Cli) -> Result<()> {
     let size = 2u64.pow(cli.log2_size);
     let rows = ((size as f64).sqrt().ceil() as u64).next_power_of_two() as usize;
     let cols = size as usize / rows;
@@ -67,9 +82,12 @@ fn main() -> Result<()> {
     if cli.all {
         cli.in_memory = true;
         cli.mmap = true;
+        cli.on_disk = true;
+        cli.buff_on_disk = true;
         cli.join = true;
     }
 
+    // setup file
     print!("{color_blue}");
     println!(
         "running test with filesize 2**{} == {size} bytes over {ITER_COUNT} iters",
@@ -88,6 +106,7 @@ fn main() -> Result<()> {
         sample_file(dims, &mut input_handle)?;
     }
 
+    // in memory solution
     let mut mem_file = if cli.in_memory {
         print!("{color_magenta}");
         println!("starting in-memory transpose");
@@ -105,6 +124,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
+        print_throughput(size * cli.times as u64, total_duration);
         print!("{color_reset}{style_reset}\n");
 
         if cli.verbose {
@@ -113,9 +133,12 @@ fn main() -> Result<()> {
         }
         mem_file
     } else {
+        // dummy case for type checking; flag allocation should prevent the
+        // correctness assert from happening if this path is taken
         File::open(&target_file)?
     };
 
+    // memmap solution
     if cli.mmap {
         print!("{color_yellow}");
         println!("starting memmap solution");
@@ -132,6 +155,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
+        print_throughput(size * cli.times as u64, total_duration);
         print!("{color_reset}{style_reset}\n");
         if cli.verbose {
             println!("mmap file looks like this:");
@@ -142,9 +166,80 @@ fn main() -> Result<()> {
         }
     }
 
+    // naive entirely on disk
+    if cli.on_disk {
+        print!("{color_bright_blue}");
+        println!("starting transpose entirely on disk");
+        #[cfg(unix)]
+        {
+            let mut total_duration = Duration::from_secs(0);
+            let mut on_disk_result_file = File::open(PathBuf::from("input_file.md"))?;
+            for _ in 0..cli.times {
+                let (new_joined_file, disk_dur) = disk_io_solution(dims, &target_file)?;
+                total_duration += disk_dur;
+                on_disk_result_file = new_joined_file;
+            }
+            if cli.times > 1 {
+                println!(
+                    "{style_bold} On average it took {:?}",
+                    total_duration / cli.times as u32
+                );
+            }
+            print_throughput(size * cli.times as u64, total_duration);
+            print!("{color_reset}{style_reset}\n");
+            if cli.verbose {
+                println!("disk manipulated file looks like this:");
+                sample_file(dims, &mut on_disk_result_file)?;
+            }
+            if cli.check_work && cli.in_memory {
+                assert!(file_eq_assert(&mut mem_file, &mut on_disk_result_file)?);
+            }
+        }
+        #[cfg(not(unix))]
+        println!("function not available on non-unix systems")
+    }
+
+    // buffered but entirely on disk
+    if cli.buff_on_disk {
+        print!("{color_bright_green}");
+        println!("starting transpose on disk but buffered");
+        #[cfg(unix)]
+        {
+            let mut total_duration = Duration::from_secs(0);
+            let mut buffered_disk_result_file = File::open(PathBuf::from("input_file.md"))?;
+            for _ in 0..cli.times {
+                let (new_joined_file, buff_disk_dur) =
+                    buffered_disk_io_solution(dims, &target_file)?;
+                total_duration += buff_disk_dur;
+                buffered_disk_result_file = new_joined_file;
+            }
+            if cli.times > 1 {
+                println!(
+                    "{style_bold} On average it took {:?}",
+                    total_duration / cli.times as u32
+                );
+            }
+            print_throughput(size * cli.times as u64, total_duration);
+            print!("{color_reset}{style_reset}\n");
+            if cli.verbose {
+                println!("disk manipulated file looks like this:");
+                sample_file(dims, &mut buffered_disk_result_file)?;
+            }
+            if cli.check_work && cli.in_memory {
+                assert!(file_eq_assert(
+                    &mut mem_file,
+                    &mut buffered_disk_result_file
+                )?);
+            }
+        }
+        #[cfg(not(unix))]
+        println!("function not available on non-unix systems")
+    }
+
+    // multiple temp files concatenated solution
     if cli.join {
         print!("{color_cyan}");
-        println!("starting tranpose with temp files");
+        println!("starting transpose with temp files");
         let mut total_duration = Duration::from_secs(0);
         let mut joined_file = File::open(PathBuf::from("input_file.md"))?;
         for _ in 0..cli.times {
@@ -158,6 +253,7 @@ fn main() -> Result<()> {
                 total_duration / cli.times as u32
             );
         }
+        print_throughput(size * cli.times as u64, total_duration);
         print!("{color_reset}{style_reset}\n");
         if cli.verbose {
             println!("temp file looks like this:");
@@ -171,10 +267,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn setup_file(
-    Dimensions { size, .. }: Dimensions,
-    target_file: &Path,
-) -> Result<File> {
+fn setup_file(Dimensions { size, .. }: Dimensions, target_file: &Path) -> Result<File> {
     let handle = OpenOptions::new()
         .read(true)
         .write(true)
@@ -184,7 +277,8 @@ fn setup_file(
         println!("setting up file to work on");
         handle.set_len(size)?;
         let mut buffered_writer = BufWriter::new(&handle);
-        let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".to_string();
+        let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$^&*()-+[]"
+            .to_string();
         let mut writeable = letters.bytes().into_iter().cycle();
         for _ in 0..size {
             buffered_writer.write(&[writeable.next().unwrap()])?;
@@ -258,7 +352,80 @@ fn mmap_solution(
     println!("memmap time: {:?}", duration);
     println!("with the initial copy: {:?}", duration_with_copy);
 
-    Ok((output_file, duration_with_copy))
+    Ok((output_file, duration))
+}
+
+#[cfg(unix)]
+fn disk_io_solution(
+    Dimensions { rows, cols, size }: Dimensions,
+    input_path: &Path,
+) -> Result<(File, Duration)> {
+    let input_file = File::open(&input_path)?;
+    let target_path: PathBuf = PathBuf::from("disk_io.md");
+    let output_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&target_path)?;
+    output_file.set_len(size)?;
+
+    let start_time = Instant::now();
+    let mut input_value_buf = [0u8; 1];
+    for i in 0..rows {
+        for j in i..cols {
+            input_file.read_at(&mut input_value_buf, (i * cols + j) as u64)?;
+            output_file.write_at(&input_value_buf, (j * cols + i) as u64)?;
+        }
+    }
+
+    let duration = start_time.elapsed();
+    println!("on_disk naive time: {:?}", duration);
+
+    Ok((output_file, duration))
+}
+
+#[cfg(unix)]
+fn buffered_disk_io_solution(
+    Dimensions { rows, cols, size }: Dimensions,
+    input_path: &Path,
+) -> Result<(File, Duration)> {
+    const BUFF_SIZE: usize = 2usize.pow(10);
+    let input_file = File::open(&input_path)?;
+    let mut input_file_reader = BufReader::with_capacity(BUFF_SIZE * 30, input_file);
+    let target_path: PathBuf = PathBuf::from("disk_io.md");
+    let output_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&target_path)?;
+    output_file.set_len(size)?;
+
+    let start_time = Instant::now();
+
+    let mut output_buff_buff: Vec<Vec<u8>> = vec![Vec::with_capacity(BUFF_SIZE); cols];
+    let mut input_row_buff = vec![0; cols];
+
+    for row_index in 0..rows {
+        input_file_reader.read(&mut input_row_buff)?;
+        (&mut output_buff_buff, &input_row_buff)
+            .into_par_iter()
+            .for_each(|(row_buf, row_entry)| row_buf.push(*row_entry));
+        if output_buff_buff.first().unwrap().len() >= BUFF_SIZE {
+            output_buff_buff
+                .iter()
+                .enumerate()
+                .try_for_each(|(column_index, col_buf)| {
+                    output_file
+                        .write_at(col_buf, (row_index + column_index) as u64)
+                        .and_then(|_| Ok(()))
+                })?;
+        }
+    }
+
+    let duration = start_time.elapsed();
+    println!("on_disk buffered time: {:?}", duration);
+
+    Ok((output_file, duration))
 }
 
 fn join_file_handles(
@@ -296,45 +463,43 @@ fn join_file_handles(
         new_row_file_handles
     };
 
-    let mut new_row_file_handles = file_io_result().or_else(
-        |e: anyhow::Error| -> Result<_> {
-            (0..rows).for_each(|i| {
-                let temp_file_name = temp_dir.join(format!("row-{}.md", i));
-                if temp_file_name.exists() {
-                    std::fs::remove_file(&temp_file_name).unwrap();
-                }
-            });
-            panic!("{}", e)
-        },
-    )?;
+    let mut new_row_file_handles = file_io_result().or_else(|e: anyhow::Error| -> Result<_> {
+        (0..rows).for_each(|i| {
+            let temp_file_name = temp_dir.join(format!("row-{}.md", i));
+            if temp_file_name.exists() {
+                std::fs::remove_file(&temp_file_name).unwrap();
+            }
+        });
+        panic!("{}", e)
+    })?;
 
     let start_time = Instant::now();
-        let mut row_buf = vec![0u8; cols];
-        for _ in 0..rows {
-            input_handle.read(&mut row_buf)?;
-            (&mut row_buf, &mut new_row_file_handles)
-                .into_par_iter()
-                .for_each(|(input_byte, output_row)| {
-                    output_row.1.write(&[*input_byte]).unwrap();
-                })
-        }
-
-        let remainder_handles = new_row_file_handles
-            .into_iter()
-            .map(|(handle, mut writer)| {
-                writer.flush().unwrap();
-                std::io::copy(&mut File::open(&handle).unwrap(), &mut output_file).unwrap();
-                handle
+    let mut row_buf = vec![0u8; cols];
+    for _ in 0..rows {
+        input_handle.read(&mut row_buf)?;
+        (&mut row_buf, &mut new_row_file_handles)
+            .into_par_iter()
+            .for_each(|(input_byte, output_row)| {
+                output_row.1.write(&[*input_byte]).unwrap();
             })
-            .collect::<Vec<_>>();
-        output_file.flush()?;
-        let duration = start_time.elapsed();
+    }
 
-        remainder_handles
-            .into_iter()
-            .for_each(|handle| std::fs::remove_file(handle).unwrap());
+    let remainder_handles = new_row_file_handles
+        .into_iter()
+        .map(|(handle, mut writer)| {
+            writer.flush().unwrap();
+            std::io::copy(&mut File::open(&handle).unwrap(), &mut output_file).unwrap();
+            handle
+        })
+        .collect::<Vec<_>>();
+    output_file.flush()?;
+    let duration = start_time.elapsed();
 
-        let duration_with_temp = start_time_with_temps.elapsed();
+    remainder_handles
+        .into_iter()
+        .for_each(|handle| std::fs::remove_file(handle).unwrap());
+
+    let duration_with_temp = start_time_with_temps.elapsed();
 
     println!(
         "tranpose with temp files time: {:?}\ntime with all cleanup {:?}",
@@ -378,7 +543,33 @@ fn file_eq_assert(file_a: &mut File, file_b: &mut File) -> Result<bool> {
     Ok(true)
 }
 
+fn print_throughput(bytes_processed: u64, total_duration: Duration) {
+    let throughput = (bytes_processed as f64 / total_duration.as_secs_f64()) / 1_000_000.0;
+    println!("Average throughput {:.4} MB/s", throughput);
+}
+
 #[unsafe(no_mangle)]
 fn calculate_index(i: usize, len: usize) -> usize {
     (i * 257) % len
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_all() {
+        let cli = Cli {
+            log2_size: 4,
+            verbose: true,
+            check_work: true,
+            times: 3,
+            in_memory: true,
+            mmap: true,
+            join: true,
+            on_disk: true,
+            buff_on_disk: true,
+            all: true,
+        };
+        _main(cli).unwrap();
+    }
 }
