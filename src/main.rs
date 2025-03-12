@@ -412,7 +412,7 @@ fn buffered_disk_io_solution(
         (&mut output_buff_buff, &input_row_buff)
             .into_par_iter()
             .for_each(|(row_buf, row_entry)| row_buf.push(*row_entry));
-        if output_buff_buff.first().unwrap().len() >= BUFF_SIZE {
+        if output_buff_buff.first().unwrap().len() >= BUFF_SIZE || row_index == rows-1{
             output_buff_buff
                 .iter()
                 .enumerate()
@@ -447,8 +447,8 @@ fn join_file_handles(
     output_file.set_len(size)?;
 
     let start_time_with_temps = Instant::now();
-    let file_io_result = || -> Result<_> {
-        let new_row_file_handles = (0..rows)
+    let io_result = || -> Result<(File, Duration)> {
+        let mut new_row_file_handles = (0..rows)
             .map(|i| {
                 let temp_file_name = temp_dir.join(format!("row-{}.md", i));
                 let temp_file_handle = OpenOptions::new()
@@ -460,47 +460,44 @@ fn join_file_handles(
                 let temp_file_buff_writer = BufWriter::new(temp_file_handle);
                 Ok((temp_file_name, temp_file_buff_writer))
             })
-            .collect::<Result<Vec<(PathBuf, BufWriter<File>)>>>();
+            .collect::<Result<Vec<(PathBuf, BufWriter<File>)>>>()?;
+
+
+        let start_time = Instant::now();
+        let mut row_buf = vec![0u8; cols];
+        for _ in 0..rows {
+            input_handle.read(&mut row_buf)?;
+            (&mut row_buf, &mut new_row_file_handles)
+                .into_par_iter()
+                .for_each(|(input_byte, output_row)| {
+                    output_row.1.write(&[*input_byte]).unwrap();
+                })
+        }
 
         new_row_file_handles
-    };
+            .into_iter()
+            .map(|(handle, mut writer)| {
+                writer.flush()?;
+                std::io::copy(&mut File::open(&handle)?, &mut output_file)?;
+                Ok(handle)
+            })
+            .collect::<Result<Vec<PathBuf>>>()?;
+        output_file.flush()?;
+        let duration = start_time.elapsed();
+        Ok((output_file, duration))
+    }();
 
-    let mut new_row_file_handles = file_io_result().or_else(|e: anyhow::Error| -> Result<_> {
-        (0..rows).for_each(|i| {
+    let delete_result = || -> Result<_> {
+        (0..rows).map(|i| {
             let temp_file_name = temp_dir.join(format!("row-{}.md", i));
             if temp_file_name.exists() {
-                std::fs::remove_file(&temp_file_name).unwrap();
+                std::fs::remove_file(&temp_file_name)?
             }
-        });
-        panic!("{}", e)
-    })?;
+            Ok(())
+        }).fold(anyhow::Ok(()), |acc, res| {acc.and(res)})
+    }();
 
-    let start_time = Instant::now();
-    let mut row_buf = vec![0u8; cols];
-    for _ in 0..rows {
-        input_handle.read(&mut row_buf)?;
-        (&mut row_buf, &mut new_row_file_handles)
-            .into_par_iter()
-            .for_each(|(input_byte, output_row)| {
-                output_row.1.write(&[*input_byte]).unwrap();
-            })
-    }
-
-    let remainder_handles = new_row_file_handles
-        .into_iter()
-        .map(|(handle, mut writer)| {
-            writer.flush().unwrap();
-            std::io::copy(&mut File::open(&handle).unwrap(), &mut output_file).unwrap();
-            handle
-        })
-        .collect::<Vec<_>>();
-    output_file.flush()?;
-    let duration = start_time.elapsed();
-
-    remainder_handles
-        .into_iter()
-        .for_each(|handle| std::fs::remove_file(handle).unwrap());
-
+    let (output_file, duration) = delete_result.and(io_result)?;
     let duration_with_temp = start_time_with_temps.elapsed();
 
     println!(
@@ -561,7 +558,7 @@ mod tests {
     #[test]
     fn test_all() {
         let cli = Cli {
-            log2_size: 4,
+            log2_size: 15,
             verbose: true,
             check_work: true,
             times: 3,
@@ -570,7 +567,7 @@ mod tests {
             join: true,
             on_disk: true,
             buff_on_disk: true,
-            all: true,
+            all: false,
         };
         _main(cli).unwrap();
     }
