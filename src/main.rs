@@ -331,13 +331,15 @@ fn setup_file(Dimensions { size, .. }: Dimensions, target_file: &Path) -> Result
         let mut buffered_writer = BufWriter::new(&handle);
         let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$^&*()-+[]"
             .to_string();
-        let mut writeable = letters.bytes().into_iter().cycle();
 
-        let bar = ProgressBar::new(size as u64);
+        let bar = ProgressBar::new(size);
+        let mut written = 0;
 
-        for _ in 0..size {
-            buffered_writer.write(&[writeable.next().unwrap()])?;
-            bar.inc(1);
+        while written < size {
+            let writeable_index = min(letters.len(), (size - written) as usize);
+            buffered_writer.write(letters[..writeable_index].as_ref())?;
+            bar.inc(writeable_index as u64);
+            written += writeable_index as u64;
         }
         buffered_writer.flush()?;
         bar.finish_and_clear();
