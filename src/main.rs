@@ -62,6 +62,10 @@ struct Cli {
     /// buffered one.
     #[arg(short)]
     all: bool,
+
+    /// keep files after they've been completed and tested
+    #[arg(short)]
+    keep_around: bool,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -191,6 +195,10 @@ fn _main(mut cli: Cli) -> Result<()> {
         if cli.check_work && cli.in_memory {
             assert!(file_eq_assert(&mut mem_file, &mut mmap_file)?);
         }
+        if !cli.keep_around {
+            drop(mmap_file);
+            std::fs::remove_file(PathBuf::from("mmap.md"))?;
+        }
     }
 
     // naive entirely on disk
@@ -220,6 +228,10 @@ fn _main(mut cli: Cli) -> Result<()> {
             }
             if cli.check_work && cli.in_memory {
                 assert!(file_eq_assert(&mut mem_file, &mut on_disk_result_file)?);
+            }
+            if !cli.keep_around {
+                drop(on_disk_result_file);
+                std::fs::remove_file(PathBuf::from("disk_io.md"))?;
             }
         }
         #[cfg(not(unix))]
@@ -258,6 +270,10 @@ fn _main(mut cli: Cli) -> Result<()> {
                     &mut buffered_disk_result_file
                 )?);
             }
+            if !cli.keep_around {
+                drop(buffered_disk_result_file);
+                std::fs::remove_file(PathBuf::from("disk_io.md"))?;
+            }
         }
         #[cfg(not(unix))]
         println!("function not available on non-unix systems")
@@ -289,6 +305,15 @@ fn _main(mut cli: Cli) -> Result<()> {
         if cli.check_work && cli.in_memory {
             assert!(file_eq_assert(&mut mem_file, &mut joined_file)?);
         }
+        if !cli.keep_around {
+            drop(joined_file);
+            std::fs::remove_file(PathBuf::from("catted_cols.md"))?;
+        }
+    }
+
+    if !cli.keep_around {
+        drop(mem_file);
+        std::fs::remove_file(PathBuf::from("in_memory.md"))?;
     }
 
     Ok(())
@@ -633,6 +658,7 @@ mod tests {
             on_disk: true,
             buff_on_disk: true,
             all: false,
+            keep_around: false,
         };
         _main(cli).unwrap();
     }
