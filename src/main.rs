@@ -311,7 +311,7 @@ fn _main(mut cli: Cli) -> Result<()> {
         }
     }
 
-    if !cli.keep_around {
+    if !cli.keep_around && cli.in_memory {
         drop(mem_file);
         std::fs::remove_file(PathBuf::from("in_memory.md"))?;
     }
