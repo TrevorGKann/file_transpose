@@ -11,6 +11,7 @@ use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::{Duration, Instant};
+use indicatif::{ProgressBar, ProgressIterator};
 
 const ITER_COUNT: usize = 1;
 // const size: u64 = 2u64.pow(30);
@@ -306,10 +307,15 @@ fn setup_file(Dimensions { size, .. }: Dimensions, target_file: &Path) -> Result
         let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$^&*()-+[]"
             .to_string();
         let mut writeable = letters.bytes().into_iter().cycle();
+
+        let bar = ProgressBar::new(size as u64);
+
         for _ in 0..size {
             buffered_writer.write(&[writeable.next().unwrap()])?;
+            bar.inc(1);
         }
         buffered_writer.flush()?;
+        bar.finish_and_clear();
     }
     assert_eq!(target_file.metadata()?.len(), size);
     Ok(handle)
@@ -335,14 +341,17 @@ fn in_memory(
     assert_eq!(num_read_bytes, size as usize);
     let mut output_buff = vec![0; size as usize];
     // transpose the data in memory
+    let bar = ProgressBar::new(rows as u64);
     for i in 0..rows {
         for j in 0..cols {
             output_buff[j * rows + i] = input_buff[i * cols + j];
         }
+        bar.inc(1);
     }
     assert_eq!(size as usize, output_file.write(&output_buff)?);
     output_file.flush()?;
     output_file.sync_all()?;
+    bar.finish_and_clear();
     let duration = start_time.elapsed();
 
     println!("in_memory time: {:?}", duration);
@@ -367,14 +376,17 @@ fn mmap_solution(
     let mut output_mmap = unsafe { MmapMut::map_mut(&output_file)? };
 
     let start_time = Instant::now();
+    let bar = ProgressBar::new(rows as u64);
     for i in 0..rows {
         for j in 0..cols {
             output_mmap[j * rows + i] = input_mmap[i * cols + j];
         }
+        bar.inc(1);
     }
 
     output_mmap.flush()?;
     output_file.sync_all()?;
+    bar.finish_and_clear();
 
     let duration = start_time.elapsed();
     println!("memmap time: {:?}", duration);
@@ -399,15 +411,18 @@ fn disk_io_solution(
 
     let start_time = Instant::now();
     let mut input_row_buf = vec![0u8; cols];
+    let bar = ProgressBar::new(rows as u64);
     for i in 0..rows {
         input_file.read_at(&mut input_row_buf, (i * cols) as u64)?;
         for j in 0..cols {
             output_file.write_at(&[input_row_buf[j]], (j * rows + i) as u64)?;
         }
+        bar.inc(1);
     }
 
     output_file.flush()?;
     output_file.sync_all()?;
+    bar.finish_and_clear();
 
     let duration = start_time.elapsed();
     println!("on_disk naive time: {:?}", duration);
@@ -437,6 +452,7 @@ fn buffered_disk_io_solution(
     let mut output_buff_buff: Vec<Vec<u8>> = vec![Vec::with_capacity(BUFF_SIZE); cols];
     let mut input_row_buff = vec![0; cols];
     let mut write_index = 0;
+    let bar = ProgressBar::new(rows as u64);
 
     for row_index in 0..rows {
         input_file_reader.read(&mut input_row_buff)?;
@@ -457,9 +473,11 @@ fn buffered_disk_io_solution(
                 .for_each(|row_buf| row_buf.clear());
             write_index = row_index + 1;
         }
+        bar.inc(1);
     }
     output_file.flush()?;
     output_file.sync_all()?;
+    bar.finish_and_clear();
 
     let duration = start_time.elapsed();
     println!("on_disk buffered time: {:?}", duration);
@@ -501,6 +519,7 @@ fn join_file_handles(
 
         let start_time = Instant::now();
         let mut row_buf = vec![0u8; cols];
+        let bar = ProgressBar::new(rows as u64);
         // read in row by row and splice them into separate column files
         for _ in 0..rows {
             input_handle.read(&mut row_buf)?;
@@ -508,20 +527,25 @@ fn join_file_handles(
                 .into_par_iter()
                 .for_each(|(input_byte, output_row)| {
                     output_row.1.write(&[*input_byte]).unwrap();
-                })
+                });
+            bar.inc(1);
         }
+        bar.finish_and_clear();
 
         //concatenate each column file into one base file
+        let bar = ProgressBar::new(rows as u64);
         new_row_file_handles
             .into_iter()
             .map(|(handle, mut writer)| {
                 writer.flush()?; // ensure the writer is actually written out
                 std::io::copy(&mut File::open(&handle)?, &mut output_file)?;
+                bar.inc(1);
                 Ok(handle)
             })
             .collect::<Result<Vec<PathBuf>>>()?;
         output_file.flush()?;
         output_file.sync_all()?;
+        bar.finish_and_clear();
         let duration = start_time.elapsed();
         Ok((output_file, duration))
     }();

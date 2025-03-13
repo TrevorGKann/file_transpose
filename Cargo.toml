@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.97"
 clap = { version = "4.5.32", features = ["derive"] }
+indicatif = "0.17.11"
 inline_colorization = "0.1.6"
 memmap = "0.7.0"
 rayon = "1.10.0"
