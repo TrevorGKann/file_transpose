@@ -11,7 +11,7 @@ use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::{Duration, Instant};
-use indicatif::{ProgressBar, ProgressIterator};
+use indicatif::{ProgressBar};
 
 const ITER_COUNT: usize = 1;
 // const size: u64 = 2u64.pow(30);
