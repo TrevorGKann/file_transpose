@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use inline_colorization::*;
 use memmap::{Mmap, MmapMut};
-use rayon::prelude::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::*;
 use size::Size;
 use std::cmp::min;
 use std::fs::{File, OpenOptions, create_dir_all};
@@ -445,7 +445,7 @@ fn buffered_disk_io_solution(
             .for_each(|(row_buf, row_entry)| row_buf.push(*row_entry));
         if output_buff_buff.first().unwrap().len() >= BUFF_SIZE || row_index == rows - 1 {
             output_buff_buff
-                .iter()
+                .par_iter()
                 .enumerate()
                 .try_for_each(|(column_index, col_buf)| {
                     output_file
@@ -501,6 +501,7 @@ fn join_file_handles(
 
         let start_time = Instant::now();
         let mut row_buf = vec![0u8; cols];
+        // read in row by row and splice them into separate column files
         for _ in 0..rows {
             input_handle.read(&mut row_buf)?;
             (&mut row_buf, &mut new_row_file_handles)
@@ -510,10 +511,11 @@ fn join_file_handles(
                 })
         }
 
+        //concatenate each column file into one base file
         new_row_file_handles
             .into_iter()
             .map(|(handle, mut writer)| {
-                writer.flush()?;
+                writer.flush()?; // ensure the writer is actually written out
                 std::io::copy(&mut File::open(&handle)?, &mut output_file)?;
                 Ok(handle)
             })
@@ -597,7 +599,7 @@ mod tests {
     #[test]
     fn test_all() {
         let cli = Cli {
-            log2_size: 5,
+            log2_size: 5, // should be odd to test for cols != rows
             verbose: true,
             check_work: true,
             times: 3,
