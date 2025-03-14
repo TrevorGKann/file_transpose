@@ -1,6 +1,8 @@
 A quick demo I made to see how fast different methods are of transposing a large matrix and writing it to disk. 
 When tranposing a very large matrix (too big to fit in RAM), you need sparse accesses to the durable file, meaning writes are very slow and un-optimized from a sys-call perspective. 
-Pretty much any method (particularly naive/canonical ones) is much slower than you'd expect. 
+Pretty much any method (particularly naive/canonical ones) is much slower than you'd expect.
+
+This is related to [this discussion on the discourse](https://users.rust-lang.org/t/fast-io-for-sparse-files/126823)
 
 ## Use
 
