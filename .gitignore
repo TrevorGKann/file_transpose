@@ -5,4 +5,5 @@ flamegraph
 flamegraph.svg
 perf.data*
 *.md
+!README.md
 profile.json*
